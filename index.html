@@ -19,6 +19,7 @@ button,input,select{font:inherit}button{cursor:pointer;border:0;border-radius:10
   <div><div class="side-label">WORKSPACE</div><nav class="nav">
     <button class="active" data-view="dashboard"><span class="ico">▦</span> Overview</button>
     <button data-view="inventory"><span class="ico">▤</span> Inventory</button>
+    <button data-view="history"><span class="ico">↻</span> Stock history</button>
     <button data-view="alerts"><span class="ico">♧</span> Low-stock alerts</button>
     <button data-view="settings"><span class="ico">⚙</span> Settings</button>
   </nav></div>
@@ -47,7 +48,13 @@ button,input,select{font:inherit}button{cursor:pointer;border:0;border-radius:10
   </section>
   <section class="section" id="view-inventory">
     <div class="panel"><div class="panel-head"><div><div class="panel-title">All products</div><div class="panel-desc" id="inventory-count">Manage products, quantities, and reorder levels.</div></div><input class="search" id="search" placeholder="Search products…"></div><div class="table-wrap"><table><thead><tr><th>Product</th><th>Current stock</th><th>Reorder level</th><th>Status</th><th>Actions</th></tr></thead><tbody id="inventory-rows"></tbody></table></div></div>
-    <div class="notice">Tip: tap the edit icon to change a product or use the stock controls to adjust quantities. Low-stock status updates automatically.</div>
+    <div class="notice">Tip: tap the edit icon to change a product or use the stock controls to adjust quantities. Changes are recorded in Stock history. Low-stock status updates automatically.</div>
+  </section>
+  <section class="section" id="view-history">
+    <div class="panel"><div class="panel-head"><div><div class="panel-title">Stock history</div><div class="panel-desc">A local record of product and stock changes on this device.</div></div><div class="actions"><button class="secondary" id="history-export">Export history ↓</button><button class="danger" id="history-clear">Clear history</button></div></div>
+      <div class="table-wrap"><table><thead><tr><th>Date & time</th><th>Product</th><th>Action</th><th>Change</th><th>Stock after</th><th>Note</th></tr></thead><tbody id="history-rows"></tbody></table></div>
+    </div>
+    <div class="notice">History is stored only in this browser on this device. This demo does not automatically know whether a stock decrease was a sale, damage, or manual adjustment.</div>
   </section>
   <section class="section" id="view-alerts">
     <div class="panel"><div class="panel-head"><div><div class="panel-title">Low-stock alerts</div><div class="panel-desc">Products at or below their reorder level.</div></div><button class="secondary" id="alerts-export">Export list ↓</button></div><div class="alert-list" id="all-alerts"></div></div>
@@ -68,13 +75,18 @@ button,input,select{font:inherit}button{cursor:pointer;border:0;border-radius:10
 <div class="toast" id="toast" role="status"></div>
 <script>
 const KEY='brimnook-demo-inventory-v1';
+const HISTORY_KEY='brimnook-demo-stock-history-v1';
 const sample=[
 {id:'p1',name:'Black T-shirt',stock:4,reorder:10,sku:'TEE-BLK-M',emoji:'👕'},
 {id:'p2',name:'Blue Hoodie',stock:18,reorder:5,sku:'HD-BLU-M',emoji:'🧥'},
 {id:'p3',name:'White Sneakers',stock:2,reorder:8,sku:'SNK-WHT-42',emoji:'👟'}
 ];
 let products=load();
+let history=loadHistory();
 let editingId=null;
+function loadHistory(){try{const x=JSON.parse(localStorage.getItem(HISTORY_KEY));return Array.isArray(x)?x:[];}catch{return [];}}
+function saveHistory(){localStorage.setItem(HISTORY_KEY,JSON.stringify(history));}
+function logHistory(product,action,change,stockAfter,note=''){history.unshift({id:'h'+Date.now()+Math.random().toString(16).slice(2,6),time:new Date().toISOString(),product:product||'Unknown product',sku:'',action,change,stockAfter,note});saveHistory();}
 function load(){try{const x=JSON.parse(localStorage.getItem(KEY));return Array.isArray(x)?x:sample.map(p=>({...p}));}catch{return sample.map(p=>({...p}));}}
 function save(){localStorage.setItem(KEY,JSON.stringify(products));}
 function status(p){return p.stock===0?'Out of stock':p.stock<=p.reorder?'Low stock':'In stock';}
@@ -87,8 +99,12 @@ function overview(){const list=products.slice(0,5);document.getElementById('over
 const low=products.filter(p=>p.stock<=p.reorder);document.getElementById('dashboard-alerts').innerHTML=low.length?low.slice(0,4).map(p=>`<div class="alert"><div class="alert-mark">!</div><div><strong>${esc(p.name)} ${p.stock===0?'is out of stock':'is running low'}</strong><p>${p.stock} left · reorder at ${p.reorder}</p></div></div>`).join(''):`<div class="empty">All clear — no low-stock products.</div>`;}
 function inventory(){const q=(document.getElementById('search').value||'').toLowerCase();const list=products.filter(p=>(p.name+' '+p.sku).toLowerCase().includes(q));document.getElementById('inventory-rows').innerHTML=list.length?list.map(p=>`<tr><td>${productCell(p)}</td><td><div class="actions"><button class="icon-btn" data-stock="-1" data-id="${p.id}" aria-label="Decrease stock">−</button><strong>${p.stock}</strong><button class="icon-btn" data-stock="1" data-id="${p.id}" aria-label="Increase stock">＋</button></div></td><td>${p.reorder}</td><td><span class="badge ${cls(p)}">${status(p)}</span></td><td><div class="actions"><button class="icon-btn" data-edit="${p.id}" title="Edit">✎</button><button class="icon-btn" data-delete="${p.id}" title="Delete">🗑</button></div></td></tr>`).join(''):`<tr><td colspan="5" class="empty">No matching products found.</td></tr>`;}
 function alerts(){const list=products.filter(p=>p.stock<=p.reorder);document.getElementById('all-alerts').innerHTML=list.length?list.map(p=>`<div class="alert"><div class="alert-mark">${p.stock===0?'○':'!'}</div><div style="flex:1"><strong>${esc(p.name)} — ${status(p)}</strong><p>Current stock: ${p.stock} · Reorder level: ${p.reorder}${p.sku?' · SKU: '+esc(p.sku):''}</p></div><button class="secondary" data-edit="${p.id}">Edit</button></div>`).join(''):`<div class="empty">No low-stock items right now.</div>`;}
-function render(){metrics();overview();inventory();alerts();}
-function switchView(view){document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));document.getElementById('view-'+view).classList.add('active');document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const titles={dashboard:['Inventory overview','A clearer view of what you have, what is running low, and what to restock.'],inventory:['Inventory','Manage your product quantities and reorder levels.'],alerts:['Low-stock alerts','Know which products may need replenishing.'],settings:['Settings','Prototype status and data controls.']};document.getElementById('page-title').textContent=titles[view][0];document.getElementById('page-sub').textContent=titles[view][1];if(view==='inventory')inventory();if(view==='alerts')alerts();window.scrollTo({top:0,behavior:'smooth'});}
+function renderHistory(){
+  const body=document.getElementById('history-rows');
+  body.innerHTML=history.length?history.map(h=>`<tr><td>${esc(new Date(h.time).toLocaleString())}</td><td><strong>${esc(h.product)}</strong>${h.sku?`<div class="sku">${esc(h.sku)}</div>`:''}</td><td>${esc(h.action)}</td><td>${h.change>0?'+':''}${h.change}</td><td>${h.stockAfter===null||h.stockAfter===undefined?'—':h.stockAfter}</td><td>${esc(h.note||'—')}</td></tr>`).join(''):`<tr><td colspan="6" class="empty">No history yet. Add a product or change stock to start a record.</td></tr>`;
+}
+function render(){metrics();overview();inventory();alerts();renderHistory();}
+function switchView(view){document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));document.getElementById('view-'+view).classList.add('active');document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const titles={dashboard:['Inventory overview','A clearer view of what you have, what is running low, and what to restock.'],inventory:['Inventory','Manage your product quantities and reorder levels.'],history:['Stock history','Review changes to stock and products.'],alerts:['Low-stock alerts','Know which products may need replenishing.'],settings:['Settings','Prototype status and data controls.']};document.getElementById('page-title').textContent=titles[view][0];document.getElementById('page-sub').textContent=titles[view][1];if(view==='inventory')inventory();if(view==='alerts')alerts();window.scrollTo({top:0,behavior:'smooth'});}
 document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
 document.getElementById('view-all').onclick=()=>switchView('inventory');
 document.getElementById('search').addEventListener('input',inventory);
@@ -96,12 +112,58 @@ function openModal(id=null){editingId=id;const p=products.find(x=>x.id===id);doc
 function closeModal(){document.getElementById('modal-back').style.display='none';}
 ['add-top','quick-add'].forEach(id=>document.getElementById(id).onclick=()=>openModal());
 document.getElementById('close-modal').onclick=closeModal;document.getElementById('cancel-modal').onclick=closeModal;document.getElementById('modal-back').addEventListener('click',e=>{if(e.target.id==='modal-back')closeModal();});
-document.getElementById('product-form').addEventListener('submit',e=>{e.preventDefault();const name=document.getElementById('f-name').value.trim();const stock=Number(document.getElementById('f-stock').value);const reorder=Number(document.getElementById('f-reorder').value);if(!name||!Number.isInteger(stock)||stock<0||!Number.isInteger(reorder)||reorder<0){toast('Enter a name and valid whole-number quantities.');return;}const sku=document.getElementById('f-sku').value.trim();if(editingId){const p=products.find(x=>x.id===editingId);Object.assign(p,{name,stock,reorder,sku});toast('Product updated.');}else{products.push({id:'p'+Date.now(),name,stock,reorder,sku,emoji:'📦'});toast('Product added.');}save();render();closeModal();});
-document.addEventListener('click',e=>{const st=e.target.closest('[data-stock]');if(st){const p=products.find(x=>x.id===st.dataset.id);if(p){p.stock=Math.max(0,p.stock+Number(st.dataset.stock));save();render();toast('Stock updated.');}return;}const ed=e.target.closest('[data-edit]');if(ed){openModal(ed.dataset.edit);return;}const del=e.target.closest('[data-delete]');if(del){const p=products.find(x=>x.id===del.dataset.delete);if(p&&confirm(`Delete ${p.name}?`)){products=products.filter(x=>x.id!==p.id);save();render();toast('Product deleted.');}}});
+document.getElementById('product-form').addEventListener('submit',e=>{
+  e.preventDefault();
+  const name=document.getElementById('f-name').value.trim();
+  const stock=Number(document.getElementById('f-stock').value);
+  const reorder=Number(document.getElementById('f-reorder').value);
+  if(!name||!Number.isInteger(stock)||stock<0||!Number.isInteger(reorder)||reorder<0){toast('Enter a name and valid whole-number quantities.');return;}
+  const sku=document.getElementById('f-sku').value.trim();
+  if(editingId){
+    const p=products.find(x=>x.id===editingId);
+    if(!p){toast('Product not found.');return;}
+    const oldName=p.name, oldStock=p.stock, oldSku=p.sku||'';
+    Object.assign(p,{name,stock,reorder,sku});
+    if(stock!==oldStock) logHistory(name,'Stock adjustment',stock-oldStock,stock,'Stock changed in product editor');
+    else if(name!==oldName||sku!==oldSku) logHistory(name,'Product details updated',0,stock,'Name or SKU changed');
+    toast('Product updated.');
+  }else{
+    const p={id:'p'+Date.now(),name,stock,reorder,sku,emoji:'📦'};
+    products.push(p);
+    logHistory(name,'Product added',stock,stock,'Initial stock');
+    toast('Product added.');
+  }
+  save();render();closeModal();
+});
+document.addEventListener('click',e=>{
+  const st=e.target.closest('[data-stock]');
+  if(st){
+    const p=products.find(x=>x.id===st.dataset.id);
+    if(p){
+      const before=p.stock, delta=Number(st.dataset.stock), after=Math.max(0,before+delta), actual=after-before;
+      if(actual!==0){p.stock=after;logHistory(p.name,actual>0?'Stock added':'Stock reduced',actual,after,actual>0?'Quick stock increase':'Quick stock decrease');save();render();toast('Stock updated and recorded.');}
+    }
+    return;
+  }
+  const ed=e.target.closest('[data-edit]');
+  if(ed){openModal(ed.dataset.edit);return;}
+  const del=e.target.closest('[data-delete]');
+  if(del){
+    const p=products.find(x=>x.id===del.dataset.delete);
+    if(p&&confirm(`Delete ${p.name}?`)){logHistory(p.name,'Product deleted',-p.stock,null,'Product removed from inventory');products=products.filter(x=>x.id!==p.id);save();render();toast('Product deleted.');}
+  }
+});
 function exportCSV(list=products){const rows=[['Product','SKU','Current Stock','Reorder Level','Status'],...list.map(p=>[p.name,p.sku||'',p.stock,p.reorder,status(p)])];const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\r\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='brimnook-inventory.csv';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);toast('CSV export downloaded.');}
 ['quick-export','settings-export'].forEach(id=>document.getElementById(id).onclick=()=>exportCSV());
 document.getElementById('alerts-export').onclick=()=>exportCSV(products.filter(p=>p.stock<=p.reorder));
-function reset(){if(confirm('Reset the workspace to the original sample products?')){products=sample.map(p=>({...p}));save();render();toast('Sample data reset.');}}
+function exportHistory(){
+  const rows=[['Date & time','Product','SKU','Action','Change','Stock after','Note'],...history.map(h=>[new Date(h.time).toLocaleString(),h.product,h.sku||'',h.action,h.change,h.stockAfter??'',h.note||''])];
+  const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\\r\\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='brimnook-stock-history.csv';document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);toast('Stock history exported.');
+}
+document.getElementById('history-export').onclick=exportHistory;
+document.getElementById('history-clear').onclick=()=>{if(confirm('Clear all stock history? Product quantities will not change.')){history=[];saveHistory();renderHistory();toast('Stock history cleared.');}};
+function reset(){if(confirm('Reset the workspace to the original sample products?')){products=sample.map(p=>({...p}));logHistory('Workspace','Sample data reset',0,null,'Inventory reset to sample products');save();render();toast('Sample data reset.');}}
 document.getElementById('quick-reset').onclick=reset;document.getElementById('settings-reset').onclick=()=>{if(confirm('Clear all products? This cannot be undone.')){products=[];save();render();toast('Demo data cleared.');}};
 render();
 </script>
