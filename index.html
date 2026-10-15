@@ -37,6 +37,7 @@ button,input,select{font:inherit}button{cursor:pointer;border:0;border-radius:10
       <div class="stat"><div class="stat-top">Low stock <span class="stat-icon" style="background:#fff0ee">⚑</span></div><div class="stat-num" id="stat-low">2</div><div class="stat-foot">At or below reorder level</div></div>
       <div class="stat"><div class="stat-top">Out of stock <span class="stat-icon" style="background:#f0f1f5">○</span></div><div class="stat-num" id="stat-out">0</div><div class="stat-foot">Products with zero units</div></div>
       <div class="stat"><div class="stat-top">Units on hand <span class="stat-icon" style="background:#e6f7ef">↗</span></div><div class="stat-num" id="stat-units">24</div><div class="stat-foot">Across all products</div></div>
+      <div class="stat"><div class="stat-top">Total stock value <span class="stat-icon">₹</span></div><div class="stat-num" id="stat-value">₹0</div></div>
     </div>
     <div class="layout">
       <div class="panel"><div class="panel-head"><div><div class="panel-title">Inventory at a glance</div><div class="panel-desc">Current stock compared with your reorder level</div></div><button class="secondary" id="view-all">View inventory →</button></div><div class="table-wrap"><table><thead><tr><th>Product</th><th>Stock</th><th>Reorder at</th><th>Status</th></tr></thead><tbody id="overview-rows"></tbody></table></div></div>
@@ -70,6 +71,7 @@ button,input,select{font:inherit}button{cursor:pointer;border:0;border-radius:10
 <label class="field full">Product name<input id="f-name" required maxlength="100" placeholder="e.g. Classic black T-shirt"></label>
 <label class="field">Current stock<input id="f-stock" required type="number" min="0" step="1" value="0"></label>
 <label class="field">Reorder level<input id="f-reorder" required type="number" min="0" step="1" value="5"></label>
+  <label class="field">Unit price (₹)<input id="f-price" required type="number" min="0" step="0.01" value="0" placeholder="e.g. 499"></label>
 <label class="field full">SKU (optional)<input id="f-sku" maxlength="40" placeholder="e.g. TEE-BLK-M"></label>
 </div><div class="modal-foot"><button type="button" class="secondary" id="cancel-modal">Cancel</button><button type="submit" class="primary">Save product</button></div></form></div></div>
 <div class="toast" id="toast" role="status"></div>
@@ -77,9 +79,9 @@ button,input,select{font:inherit}button{cursor:pointer;border:0;border-radius:10
 const KEY='brimnook-demo-inventory-v1';
 const HISTORY_KEY='brimnook-demo-stock-history-v1';
 const sample=[
-{id:'p1',name:'Black T-shirt',stock:4,reorder:10,sku:'TEE-BLK-M',emoji:'👕'},
-{id:'p2',name:'Blue Hoodie',stock:18,reorder:5,sku:'HD-BLU-M',emoji:'🧥'},
-{id:'p3',name:'White Sneakers',stock:2,reorder:8,sku:'SNK-WHT-42',emoji:'👟'}
+{id:'p1',name:'Black T-shirt',stock:4,reorder:10,sku:'TEE-BLK-M',emoji:'👕',price:499},
+{id:'p2',name:'Blue Hoodie',stock:18,reorder:5,sku:'HD-BLU-M',emoji:'🧥',price:1299},
+{id:'p3',name:'White Sneakers',stock:2,reorder:8,sku:'SNK-WHT-42',emoji:'👟',price:2499}
 ];
 let products=load();
 let history=loadHistory();
@@ -87,13 +89,27 @@ let editingId=null;
 function loadHistory(){try{const x=JSON.parse(localStorage.getItem(HISTORY_KEY));return Array.isArray(x)?x:[];}catch{return [];}}
 function saveHistory(){localStorage.setItem(HISTORY_KEY,JSON.stringify(history));}
 function logHistory(product,action,change,stockAfter,note=''){history.unshift({id:'h'+Date.now()+Math.random().toString(16).slice(2,6),time:new Date().toISOString(),product:product||'Unknown product',sku:'',action,change,stockAfter,note});saveHistory();}
-function load(){try{const x=JSON.parse(localStorage.getItem(KEY));return Array.isArray(x)?x:sample.map(p=>({...p}));}catch{return sample.map(p=>({...p}));}}
+function load(){try{
+    const x=JSON.parse(localStorage.getItem(KEY));
+    if(Array.isArray(x)){
+      return x.map(p=>({
+        ...p,
+        price: p.price!==undefined && Number.isFinite(Number(p.price))
+          ? Math.max(0,Number(p.price))
+          : (sample.find(s=>s.id===p.id)?.price ?? 0)
+      }));
+    }
+    return sample.map(p=>({...p}));
+  }catch{
+    return sample.map(p=>({...p}));
+  }
+}
 function save(){localStorage.setItem(KEY,JSON.stringify(products));}
 function status(p){return p.stock===0?'Out of stock':p.stock<=p.reorder?'Low stock':'In stock';}
 function cls(p){return p.stock===0?'out':p.stock<=p.reorder?'low':'ok';}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function toast(s){const t=document.getElementById('toast');t.textContent=s;t.style.display='block';clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>t.style.display='none',2500);}
-function metrics(){document.getElementById('stat-products').textContent=products.length;document.getElementById('stat-low').textContent=products.filter(p=>p.stock>0&&p.stock<=p.reorder).length;document.getElementById('stat-out').textContent=products.filter(p=>p.stock===0).length;document.getElementById('stat-units').textContent=products.reduce((a,p)=>a+p.stock,0);document.getElementById('inventory-count').textContent=`${products.length} products · Edit details or adjust stock`;}
+function metrics(){document.getElementById('stat-products').textContent=products.length;document.getElementById('stat-low').textContent=products.filter(p=>p.stock>0&&p.stock<=p.reorder).length;document.getElementById('stat-out').textContent=products.filter(p=>p.stock===0).length;document.getElementById('stat-units').textContent=products.reduce((a,p)=>a+p.stock,0);document.getElementById('stat-value').textContent='₹'+products.reduce((a,p)=>a+p.stock*(p.price||0),0).toLocaleString('en-IN',{maximumFractionDigits:2});document.getElementById('inventory-count').textContent=`${products.length} products · Edit details or adjust stock`;}
 function productCell(p){return `<div class="product"><div class="product-icon">${p.emoji||'📦'}</div><div><div class="product-name">${esc(p.name)}</div><div class="sku">${esc(p.sku||'No SKU')}</div></div></div>`;}
 function overview(){const list=products.slice(0,5);document.getElementById('overview-rows').innerHTML=list.length?list.map(p=>`<tr><td>${productCell(p)}</td><td><strong>${p.stock}</strong> units</td><td>${p.reorder} units</td><td><span class="badge ${cls(p)}">${status(p)}</span></td></tr>`).join(''):`<tr><td colspan="4" class="empty">No products yet. Add your first product.</td></tr>`;
 const low=products.filter(p=>p.stock<=p.reorder);document.getElementById('dashboard-alerts').innerHTML=low.length?low.slice(0,4).map(p=>`<div class="alert"><div class="alert-mark">!</div><div><strong>${esc(p.name)} ${p.stock===0?'is out of stock':'is running low'}</strong><p>${p.stock} left · reorder at ${p.reorder}</p></div></div>`).join(''):`<div class="empty">All clear — no low-stock products.</div>`;}
@@ -108,7 +124,7 @@ function switchView(view){document.querySelectorAll('.section').forEach(s=>s.cla
 document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
 document.getElementById('view-all').onclick=()=>switchView('inventory');
 document.getElementById('search').addEventListener('input',inventory);
-function openModal(id=null){editingId=id;const p=products.find(x=>x.id===id);document.getElementById('modal-title').textContent=p?'Edit product':'Add product';document.getElementById('f-name').value=p?.name||'';document.getElementById('f-stock').value=p?.stock??0;document.getElementById('f-reorder').value=p?.reorder??5;document.getElementById('f-sku').value=p?.sku||'';document.getElementById('modal-back').style.display='flex';setTimeout(()=>document.getElementById('f-name').focus(),50);}
+function openModal(id=null){editingId=id;const p=products.find(x=>x.id===id);document.getElementById('modal-title').textContent=p?'Edit product':'Add product';document.getElementById('f-name').value=p?.name||'';document.getElementById('f-stock').value=p?.stock??0;document.getElementById('f-reorder').value=p?.reorder??5;document.getElementById('f-price').value=p?.price??0;document.getElementById('f-sku').value=p?.sku||'';document.getElementById('modal-back').style.display='flex';setTimeout(()=>document.getElementById('f-name').focus(),50);}
 function closeModal(){document.getElementById('modal-back').style.display='none';}
 ['add-top','quick-add'].forEach(id=>document.getElementById(id).onclick=()=>openModal());
 document.getElementById('close-modal').onclick=closeModal;document.getElementById('cancel-modal').onclick=closeModal;document.getElementById('modal-back').addEventListener('click',e=>{if(e.target.id==='modal-back')closeModal();});
@@ -117,18 +133,19 @@ document.getElementById('product-form').addEventListener('submit',e=>{
   const name=document.getElementById('f-name').value.trim();
   const stock=Number(document.getElementById('f-stock').value);
   const reorder=Number(document.getElementById('f-reorder').value);
-  if(!name||!Number.isInteger(stock)||stock<0||!Number.isInteger(reorder)||reorder<0){toast('Enter a name and valid whole-number quantities.');return;}
+  const price=Number(document.getElementById('f-price').value);
+  if(!name||!Number.isInteger(stock)||stock<0||!Number.isInteger(reorder)||reorder<0||!Number.isFinite(price)||price<0){toast('Enter a name and valid quantities and price.');return;}
   const sku=document.getElementById('f-sku').value.trim();
   if(editingId){
     const p=products.find(x=>x.id===editingId);
     if(!p){toast('Product not found.');return;}
     const oldName=p.name, oldStock=p.stock, oldSku=p.sku||'';
-    Object.assign(p,{name,stock,reorder,sku});
+    Object.assign(p,{name,stock,reorder,sku,price});
     if(stock!==oldStock) logHistory(name,'Stock adjustment',stock-oldStock,stock,'Stock changed in product editor');
     else if(name!==oldName||sku!==oldSku) logHistory(name,'Product details updated',0,stock,'Name or SKU changed');
     toast('Product updated.');
   }else{
-    const p={id:'p'+Date.now(),name,stock,reorder,sku,emoji:'📦'};
+    const p={id:'p'+Date.now(),name,stock,reorder,sku,emoji:'📦',price};
     products.push(p);
     logHistory(name,'Product added',stock,stock,'Initial stock');
     toast('Product added.');
